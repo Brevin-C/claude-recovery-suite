@@ -1,0 +1,19 @@
+# Local recovered user data & backups (NEVER commit)
+recovered_data/
+backups/
+private/
+*.log
+对比评估报告_Gemini_vs_ChatGPT.md
+
+# Python cache & build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+
+# OS & Editor files
+.DS_Store
+.idea/
+.vscode/

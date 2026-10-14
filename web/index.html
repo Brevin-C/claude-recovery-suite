@@ -1,0 +1,1786 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Claude 1:1 本地数据复原与防封重放工作台</title>
+  <style>
+    :root {
+      --bg-app: #f7f5f0;
+      --bg-sidebar: #efeae1;
+      --bg-surface: #ffffff;
+      --bg-elevated: #f3efe6;
+      --bg-code: #1e1e24;
+      --text-primary: #1f1e1b;
+      --text-secondary: #5e5b52;
+      --text-muted: #8c877b;
+      --border-color: #dfd9cc;
+      --accent: #d97757;
+      --accent-hover: #c46243;
+      --accent-soft: rgba(217, 119, 87, 0.14);
+      --green: #237b4b;
+      --green-soft: rgba(35, 123, 75, 0.12);
+      --blue: #2563eb;
+      --blue-soft: rgba(37, 99, 235, 0.12);
+      --amber: #b45309;
+      --amber-soft: rgba(180, 83, 9, 0.12);
+      --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      --font-serif: "Georgia", "Songti SC", "Noto Serif SC", serif;
+      --font-mono: "SF Mono", "JetBrains Mono", "Menlo", "Monaco", monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg-app);
+      color: var(--text-primary);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Top Navigation Bar */
+    .topbar {
+      height: 54px;
+      background: var(--bg-sidebar);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      flex-shrink: 0;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 15px;
+      color: var(--text-primary);
+    }
+
+    .brand-logo {
+      width: 28px;
+      height: 28px;
+      border-radius: 7px;
+      background: var(--accent);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-serif);
+      font-size: 17px;
+      font-weight: bold;
+    }
+
+    .mode-pills {
+      display: flex;
+      gap: 6px;
+      background: #e4decb;
+      padding: 4px;
+      border-radius: 10px;
+    }
+
+    .mode-pill {
+      border: none;
+      background: transparent;
+      padding: 6px 12px;
+      border-radius: 7px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .mode-pill:hover {
+      color: var(--text-primary);
+    }
+
+    .mode-pill.active {
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    }
+
+    .pill-count {
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 99px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-family: var(--font-mono);
+    }
+
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn {
+      border: 1px solid var(--border-color);
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      padding: 6px 12px;
+      border-radius: 7px;
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      text-decoration: none;
+    }
+
+    .btn:hover {
+      background: var(--bg-elevated);
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+
+    .btn-primary:hover {
+      background: var(--accent-hover);
+    }
+
+    /* Main Workspace Layout */
+    .workspace {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* Left Sidebar */
+    .sidebar {
+      width: 390px;
+      background: var(--bg-sidebar);
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+
+    .sidebar-search {
+      padding: 12px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .search-input {
+      width: 100%;
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+      background: var(--bg-surface);
+      font-size: 13px;
+      outline: none;
+    }
+
+    .search-input:focus {
+      border-color: var(--accent);
+    }
+
+    .filter-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .sidebar-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+    }
+
+    /* Project Group Card in Sidebar */
+    .project-group {
+      margin-bottom: 8px;
+      background: rgba(255, 255, 255, 0.55);
+      border: 1px solid var(--border-color);
+      border-radius: 9px;
+      overflow: hidden;
+    }
+
+    .project-header {
+      padding: 10px 12px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      user-select: none;
+      transition: background 0.12s;
+    }
+
+    .project-header:hover {
+      background: rgba(255, 255, 255, 0.9);
+    }
+
+    .project-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+
+    .project-name {
+      font-weight: 700;
+      font-size: 13.5px;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      word-break: break-all;
+    }
+
+    .project-path {
+      font-size: 11px;
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+      word-break: break-all;
+    }
+
+    .badges-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-top: 2px;
+    }
+
+    .badge {
+      font-size: 10.5px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+
+    .badge-green { background: var(--green-soft); color: var(--green); }
+    .badge-amber { background: var(--amber-soft); color: var(--amber); }
+    .badge-blue { background: var(--blue-soft); color: var(--blue); }
+    .badge-accent { background: var(--accent-soft); color: var(--accent); }
+
+    .project-sessions {
+      border-top: 1px solid var(--border-color);
+      background: var(--bg-surface);
+      padding: 6px;
+      display: none;
+    }
+
+    .project-group.expanded .project-sessions {
+      display: block;
+    }
+
+    .session-item {
+      padding: 8px 10px;
+      border-radius: 7px;
+      cursor: pointer;
+      margin-bottom: 4px;
+      border: 1px solid transparent;
+      transition: all 0.12s;
+    }
+
+    .session-item:hover {
+      background: var(--bg-elevated);
+    }
+
+    .session-item.active {
+      background: var(--accent-soft);
+      border-color: rgba(217, 119, 87, 0.35);
+    }
+
+    .session-item-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 3px;
+      line-height: 1.35;
+    }
+
+    .session-item-meta {
+      font-size: 11px;
+      color: var(--text-muted);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    /* Main Content Area */
+    .main-pane {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: var(--bg-app);
+    }
+
+    .main-header {
+      padding: 14px 24px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      flex-shrink: 0;
+    }
+
+    .main-title {
+      font-size: 17px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .main-subtitle {
+      font-size: 12px;
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .main-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+    }
+
+    .chat-container {
+      max-width: 940px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    /* Turn Cards */
+    .turn-card {
+      border-radius: 12px;
+      padding: 16px 20px;
+      border: 1px solid var(--border-color);
+      line-height: 1.65;
+      font-size: 14.5px;
+    }
+
+    .turn-user {
+      background: #efeae0;
+      border-color: #dfd8c8;
+    }
+
+    .turn-assistant {
+      background: var(--bg-surface);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+    }
+
+    .turn-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      font-size: 12px;
+      color: var(--text-secondary);
+      font-weight: 700;
+    }
+
+    .turn-text {
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* Collapsible Thinking & Tool Blocks */
+    details.block-details {
+      margin: 10px 0;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      background: var(--bg-elevated);
+      overflow: hidden;
+    }
+
+    details.block-details summary {
+      padding: 8px 12px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      cursor: pointer;
+      user-select: none;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    details.block-details summary:hover {
+      background: rgba(0, 0, 0, 0.03);
+    }
+
+    .block-body {
+      padding: 12px;
+      border-top: 1px solid var(--border-color);
+      background: #faf8f5;
+      font-size: 13px;
+      overflow-x: auto;
+    }
+
+    pre.code-box {
+      background: var(--bg-code);
+      color: #f8f8f2;
+      padding: 12px;
+      border-radius: 7px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.5;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+      margin-top: 6px;
+    }
+
+    .diff-del {
+      color: #fda4af;
+      background: rgba(244, 63, 94, 0.15);
+      display: block;
+    }
+
+    .diff-add {
+      color: #86efac;
+      background: rgba(34, 197, 94, 0.15);
+      display: block;
+    }
+
+    /* Dashboard / Overview Cards */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 16px;
+    }
+
+    .stat-value {
+      font-size: 26px;
+      font-weight: 800;
+      color: var(--accent);
+      font-family: var(--font-mono);
+    }
+
+    .stat-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-top: 4px;
+    }
+
+    .stat-sub {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* File Table */
+    .file-table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--bg-surface);
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--border-color);
+      font-size: 13px;
+    }
+
+    .file-table th, .file-table td {
+      padding: 9px 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .file-table th {
+      background: var(--bg-elevated);
+      font-weight: 700;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .file-table tr:hover td {
+      background: #faf8f4;
+    }
+
+    /* Modal for File Preview */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.45);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 24px;
+    }
+
+    .modal-backdrop.open {
+      display: flex;
+    }
+
+    .modal-card {
+      background: var(--bg-surface);
+      border-radius: 12px;
+      width: 100%;
+      max-width: 980px;
+      max-height: 88vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+    }
+
+    .modal-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-weight: 700;
+    }
+
+    .modal-body {
+      padding: 18px 20px;
+      overflow-y: auto;
+      flex: 1;
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-logo">C</div>
+      <div>
+        <div>Claude 1:1 数据复原与防封重放工作台</div>
+      </div>
+    </div>
+
+    <div class="mode-pills">
+      <button class="mode-pill active" data-mode="code" onclick="switchMode('code')">
+        💻 Code 项目文件夹 <span class="pill-count" id="count-code">0</span>
+      </button>
+      <button class="mode-pill" data-mode="cowork" onclick="switchMode('cowork')">
+        🤝 Cowork 空间与会话 <span class="pill-count" id="count-cowork">0</span>
+      </button>
+      <button class="mode-pill" data-mode="cloud" onclick="switchMode('cloud')">
+        ☁️ 云端对话与沙盒缓存 <span class="pill-count" id="count-cloud">0</span>
+      </button>
+      <button class="mode-pill" data-mode="pinned" onclick="switchMode('pinned')">
+        📌 置顶与工作树 <span class="pill-count" id="count-pinned">0</span>
+      </button>
+      <button class="mode-pill" data-mode="snapshots" onclick="switchMode('snapshots')">
+        🕰️ 历史快照与影子库 <span class="pill-count" id="count-snapshots">0</span>
+      </button>
+      <button class="mode-pill" data-mode="migrate" onclick="switchMode('migrate')">
+        🔄 账号迁移与防封中心
+      </button>
+    </div>
+
+    <div class="topbar-actions">
+      <button class="btn" onclick="showOverviewDashboard()">📊 全局恢复总览</button>
+      <button class="btn btn-primary" onclick="triggerRescan()" id="btn-rescan">⚡ 增量同步扫描</button>
+    </div>
+  </header>
+
+  <div class="workspace">
+    <aside class="sidebar">
+      <div class="sidebar-search">
+        <input
+          type="text"
+          id="search-input"
+          class="search-input"
+          placeholder="搜索项目名、文件夹路径、对话标题、分支..."
+          oninput="renderSidebar()"
+        />
+        <div class="filter-row">
+          <label style="display:flex;align-items:center;gap:5px;cursor:pointer;">
+            <input type="checkbox" id="chk-transcript-only" checked onchange="renderSidebar()" />
+            仅显示含完整对话记录 (.jsonl)
+          </label>
+          <span id="sidebar-stats-label">加载中...</span>
+        </div>
+      </div>
+      <div class="sidebar-list" id="sidebar-list"></div>
+    </aside>
+
+    <main class="main-pane">
+      <div class="main-header" id="main-header">
+        <div>
+          <div class="main-title" id="main-title">正在加载本地恢复索引...</div>
+          <div class="main-subtitle" id="main-subtitle"></div>
+        </div>
+        <div id="main-actions" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+      </div>
+      <div class="main-body" id="main-body"></div>
+    </main>
+  </div>
+
+  <!-- File Preview Modal -->
+  <div class="modal-backdrop" id="file-modal" onclick="if(event.target===this)closeModal()">
+    <div class="modal-card">
+      <div class="modal-header">
+        <span id="modal-title">文件预览</span>
+        <div style="display:flex;gap:8px;">
+          <a id="modal-download" class="btn btn-primary" href="#" target="_blank">📥 下载原文件</a>
+          <button class="btn" onclick="closeModal()">✕ 关闭</button>
+        </div>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+    </div>
+  </div>
+
+  <script>
+    let CATALOG = null;
+    let CURRENT_MODE = 'code';
+    let ACTIVE_SESSION_ID = null;
+    let EXPANDED_PROJECTS = new Set();
+
+    async function init() {
+      const res = await fetch('/api/catalog');
+      CATALOG = await res.json();
+      updateTopCounts();
+      // Expand first 3 projects by default
+      (CATALOG.codeProjects || []).slice(0, 3).forEach(p => EXPANDED_PROJECTS.add(p.projectPath));
+      renderSidebar();
+      showOverviewDashboard();
+    }
+
+    function updateTopCounts() {
+      if (!CATALOG) return;
+      const s = CATALOG.summary || {};
+      document.getElementById('count-code').textContent = `${s.totalCodeProjects || 0}项 / ${s.totalAllJsonlFiles || s.totalCodeTranscripts || 0}记录`;
+      document.getElementById('count-cowork').textContent = `${s.totalCoworkSpaces || 0}空间 / ${s.totalCoworkSessions || 0}会话`;
+      document.getElementById('count-cloud').textContent = `${s.totalCloudConversations || 0}对话 / ${s.totalCloudSandboxFiles || 0}文件`;
+      document.getElementById('count-pinned').textContent = `${(CATALOG.pinnedGroups || []).length}组 / ${s.totalWorktrees || 0}分支`;
+      const elSnap = document.getElementById('count-snapshots');
+      if (elSnap) {
+        elSnap.textContent = `${s.totalFileHistorySnapshots || 0}快照 / ${s.totalShadowGitRepos || 0}仓库`;
+      }
+    }
+
+    function switchMode(mode) {
+      CURRENT_MODE = mode;
+      document.querySelectorAll('.mode-pill').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.mode === mode);
+      });
+      renderSidebar();
+      if (mode === 'migrate') {
+        renderMigrationCenter();
+      } else if (mode === 'snapshots') {
+        renderSnapshotsExplorer();
+      }
+    }
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function formatBytes(bytes) {
+      if (!bytes || bytes <= 0) return '0 B';
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+    }
+
+    function toggleProjectGroup(projPath) {
+      if (EXPANDED_PROJECTS.has(projPath)) {
+        EXPANDED_PROJECTS.delete(projPath);
+      } else {
+        EXPANDED_PROJECTS.add(projPath);
+      }
+      renderSidebar();
+    }
+
+    function renderSidebar() {
+      if (!CATALOG) return;
+      const q = (document.getElementById('search-input').value || '').trim().toLowerCase();
+      const transcriptOnly = document.getElementById('chk-transcript-only').checked;
+      const container = document.getElementById('sidebar-list');
+      const statsLabel = document.getElementById('sidebar-stats-label');
+
+      if (CURRENT_MODE === 'code') {
+        let projects = CATALOG.codeProjects || [];
+        let html = '';
+        let shownProjects = 0;
+        let shownSessions = 0;
+
+        for (const p of projects) {
+          let sessions = p.sessions || [];
+          if (transcriptOnly) {
+            sessions = sessions.filter(s => s.hasTranscript);
+          }
+          if (q) {
+            const projMatch = (p.projectName || '').toLowerCase().includes(q) || (p.projectPath || '').toLowerCase().includes(q);
+            if (!projMatch) {
+              sessions = sessions.filter(s =>
+                (s.title || '').toLowerCase().includes(q) ||
+                (s.firstUserPrompt || '').toLowerCase().includes(q) ||
+                (s.gitBranch || '').toLowerCase().includes(q) ||
+                (s.worktreeName || '').toLowerCase().includes(q)
+              );
+            }
+          }
+          if (sessions.length === 0) continue;
+          shownProjects++;
+          shownSessions += sessions.length;
+
+          const isExpanded = EXPANDED_PROJECTS.has(p.projectPath) || Boolean(q);
+          const diskBadge = p.existsOnDisk
+            ? `<span class="badge badge-green">本地目录存在</span>`
+            : `<span class="badge badge-amber">已从对话重构</span>`;
+          const guiBadge = p.inGuiSidebar ? `<span class="badge badge-accent">GUI侧边栏</span>` : '';
+          const memBadge = (p.memories && p.memories.length) ? `<span class="badge badge-blue">Memory(${p.memories.length})</span>` : '';
+          const wtBadge = (p.worktrees && p.worktrees.length) ? `<span class="badge badge-blue">Worktree(${p.worktrees.length})</span>` : '';
+
+          html += `
+            <div class="project-group ${isExpanded ? 'expanded' : ''}">
+              <div class="project-header" onclick="toggleProjectGroup('${escapeHtml(p.projectPath.replace(/'/g, "\\'"))}')">
+                <div class="project-title-row">
+                  <div class="project-name">
+                    <span>${isExpanded ? '📂' : '📁'}</span>
+                    <span>${escapeHtml(p.projectName)}</span>
+                  </div>
+                  <button class="btn" style="padding:2px 7px;font-size:11px;" onclick="event.stopPropagation();openProjectWorkspace('${escapeHtml(p.projectPath.replace(/'/g, "\\'"))}')">
+                    文件/成果 (${sessions.length})
+                  </button>
+                </div>
+                <div class="project-path">${escapeHtml(p.projectPath)}</div>
+                <div class="badges-row">
+                  ${diskBadge} ${guiBadge} ${memBadge} ${wtBadge}
+                  <span class="badge" style="background:#eae5d9;color:#5e5b52;">${formatBytes(p.totalTranscriptBytes)}</span>
+                </div>
+              </div>
+              <div class="project-sessions">
+                ${sessions.map(s => renderSessionListItem(s, 'code')).join('')}
+              </div>
+            </div>
+          `;
+        }
+        statsLabel.textContent = `${shownProjects} 个项目 / ${shownSessions} 个会话`;
+        container.innerHTML = html || '<div style="padding:20px;color:var(--text-muted);text-align:center;">无匹配项目或会话</div>';
+      } else if (CURRENT_MODE === 'cowork') {
+        const spaces = CATALOG.coworkSpaces || [];
+        let sessions = CATALOG.coworkSessions || [];
+        if (q) {
+          sessions = sessions.filter(s =>
+            (s.title || '').toLowerCase().includes(q) ||
+            (s.projectPath || '').toLowerCase().includes(q) ||
+            (s.initialMessage || '').toLowerCase().includes(q)
+          );
+        }
+        statsLabel.textContent = `${spaces.length} 个空间 / ${sessions.length} 个会话`;
+        let html = `
+          <div class="project-group expanded">
+            <div class="project-header" onclick="renderCoworkSpacesOverview()">
+              <div class="project-title-row">
+                <div class="project-name">🗂️ Cowork 文件夹空间 (spaces.json)</div>
+                <span class="badge badge-accent">${spaces.length} 个项目空间</span>
+              </div>
+              <div class="project-path">点击查看全部 GUI 空间配置、文件夹映射与恢复文件</div>
+            </div>
+          </div>
+        `;
+        html += sessions.map(s => renderSessionListItem(s, 'cowork')).join('');
+        container.innerHTML = html;
+      } else if (CURRENT_MODE === 'cloud') {
+        const cloud = CATALOG.cloudData || {};
+        let convs = cloud.conversations || [];
+        if (q) {
+          convs = convs.filter(c =>
+            (c.title || '').toLowerCase().includes(q) ||
+            (c.projectName || '').toLowerCase().includes(q)
+          );
+        }
+        statsLabel.textContent = `${convs.length} 个云端对话 / ${(cloud.sandboxFiles || []).length} 个沙盒文件`;
+        let html = `
+          <div class="project-group expanded">
+            <div class="project-header" onclick="renderCloudSandboxExplorer()">
+              <div class="project-title-row">
+                <div class="project-name">📦 云端项目与沙盒产出文件库 (Zstd 缓存还原)</div>
+                <span class="badge badge-green">${(cloud.sandboxFiles || []).length} 个文件</span>
+              </div>
+              <div class="project-path">包含云端 Projects 架构文档、沙盒生成的 PDF/Word/Markdown 报告与预览图</div>
+            </div>
+          </div>
+        `;
+        html += convs.map(c => `
+          <div class="session-item ${ACTIVE_SESSION_ID === c.sessionId ? 'active' : ''}" onclick="loadCloudSession('${escapeHtml(c.sessionId)}')">
+            <div class="session-item-title">☁️ ${escapeHtml(c.title)}</div>
+            <div class="session-item-meta">
+              <span>💬 ${c.messageCount} 条消息</span>
+              ${c.projectName ? `<span class="badge badge-accent">${escapeHtml(c.projectName)}</span>` : ''}
+              <span>🕒 ${escapeHtml(c.updatedFormatted)}</span>
+            </div>
+          </div>
+        `).join('');
+        container.innerHTML = html;
+      } else if (CURRENT_MODE === 'pinned') {
+        const pgroups = CATALOG.pinnedGroups || [];
+        const worktrees = CATALOG.worktrees || [];
+        statsLabel.textContent = `${pgroups.length} 个置顶分组 / ${worktrees.length} 个 Git Worktrees`;
+        let allCodeSessions = {};
+        (CATALOG.codeProjects || []).forEach(p => (p.sessions || []).forEach(s => { allCodeSessions[s.id] = s; }));
+
+        let html = '';
+        for (const pg of pgroups) {
+          const sList = (pg.sessionIds || []).map(id => allCodeSessions[id]).filter(Boolean);
+          html += `
+            <div class="project-group expanded">
+              <div class="project-header">
+                <div class="project-name">📌 ${escapeHtml(pg.name)}</div>
+                <div class="project-path">Scope: ${escapeHtml(pg.scopeKey)}</div>
+              </div>
+              <div class="project-sessions">
+                ${sList.map(s => renderSessionListItem(s, 'code')).join('')}
+              </div>
+            </div>
+          `;
+        }
+        html += `
+          <div class="project-group expanded">
+            <div class="project-header">
+              <div class="project-name">🌿 Claude Desktop Git Worktrees (${worktrees.length})</div>
+              <div class="project-path">~/Library/Application Support/Claude/git-worktrees.json</div>
+            </div>
+            <div class="project-sessions">
+              ${worktrees.map(wt => `
+                <div class="session-item" onclick="openProjectWorkspace('${escapeHtml((wt.path || '').replace(/'/g, "\\'"))}')">
+                  <div class="session-item-title">🌿 ${escapeHtml(wt.name)}</div>
+                  <div class="session-item-meta">
+                    <span>分支: ${escapeHtml(wt.branch)}</span>
+                    <span>主仓库: ${escapeHtml(wt.baseRepo)}</span>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+        container.innerHTML = html;
+      } else if (CURRENT_MODE === 'snapshots') {
+        const aux = CATALOG.auxiliaryEvidence || {};
+        statsLabel.textContent = `${(aux.fileHistorySnapshots || []).length} 快照 / ${(aux.shadowGitRepos || []).length} 影子库`;
+        container.innerHTML = `
+          <div class="project-group expanded">
+            <div class="project-header" onclick="renderSnapshotsExplorer()">
+              <div class="project-name">🕰️ 文件历史快照 (file-history: ${(aux.fileHistorySnapshots || []).length})</div>
+              <div class="project-path">~/.claude/file-history (自动关联原代码文件路径)</div>
+            </div>
+          </div>
+          <div class="project-group expanded">
+            <div class="project-header" onclick="renderSnapshotsExplorer()">
+              <div class="project-name">🌳 影子 Git 仓库 (git-shadow: ${(aux.shadowGitRepos || []).length})</div>
+              <div class="project-path">~/Library/Application Support/Claude/git-shadow</div>
+            </div>
+          </div>
+          <div class="project-group expanded">
+            <div class="project-header" onclick="renderSnapshotsExplorer()">
+              <div class="project-name">📋 交接文档 / 粘贴缓存 / 待传图片</div>
+              <div class="project-path">handoff-history (${(aux.handoffFiles || []).length}) · pending-uploads (${(aux.pendingUploads || []).length}) · paste-cache (${(aux.pasteCacheFiles || []).length})</div>
+            </div>
+          </div>
+        `;
+      } else if (CURRENT_MODE === 'migrate') {
+        statsLabel.textContent = '账号迁移与防封备份配置';
+        container.innerHTML = `
+          <div class="project-group expanded">
+            <div class="project-header" onclick="renderMigrationCenter()">
+              <div class="project-name">🔄 Claude Desktop 账号无损迁移器</div>
+              <div class="project-path">将封禁账号下的全部 Code 会话、Cowork 空间与本地 Agent 会话一键挂载到新账号</div>
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    function renderSessionListItem(s, mode) {
+      const isAct = ACTIVE_SESSION_ID === s.id;
+      const statusBadge = s.hasTranscript
+        ? `<span class="badge badge-green">💬 ${s.userTurnCount || 0}问/${s.assistantTurnCount || 0}答</span>`
+        : `<span class="badge badge-amber">仅GUI元数据</span>`;
+      const writeBadge = s.toolWriteCount ? `<span class="badge badge-accent">✏️ ${s.toolWriteCount}次改码</span>` : '';
+      const subBadge = (s.subagentPaths && s.subagentPaths.length) ? `<span class="badge badge-blue">🤖 ${s.subagentPaths.length}子Agent</span>` : '';
+      const outBadge = (s.outputFiles && s.outputFiles.length) ? `<span class="badge badge-green">📦 ${s.outputFiles.length}产物</span>` : '';
+      const wtBadge = s.worktreeName ? `<span class="badge badge-blue">🌿 ${escapeHtml(s.worktreeName)}</span>` : '';
+
+      return `
+        <div class="session-item ${isAct ? 'active' : ''}" onclick="loadSession('${escapeHtml(s.id)}', '${mode}')">
+          <div class="session-item-title">${escapeHtml(s.title)}</div>
+          <div class="session-item-meta">
+            ${statusBadge} ${writeBadge} ${subBadge} ${outBadge} ${wtBadge}
+            <span>${escapeHtml((s.updatedFormatted || '').slice(0, 16))}</span>
+          </div>
+        </div>
+      `;
+    }
+
+    function findSessionById(sid, mode) {
+      if (mode === 'cowork') {
+        return (CATALOG.coworkSessions || []).find(s => s.id === sid);
+      }
+      for (const p of (CATALOG.codeProjects || [])) {
+        for (const s of (p.sessions || [])) {
+          if (s.id === sid) return s;
+        }
+      }
+      return null;
+    }
+
+    async function loadSession(sid, mode, customTranscriptPath = null, subagentLabel = null) {
+      ACTIVE_SESSION_ID = sid;
+      renderSidebar();
+      const s = findSessionById(sid, mode);
+      if (!s) return;
+
+      const tpath = customTranscriptPath || s.transcriptPath;
+      const headerTitle = document.getElementById('main-title');
+      const headerSub = document.getElementById('main-subtitle');
+      const headerActions = document.getElementById('main-actions');
+      const body = document.getElementById('main-body');
+
+      headerTitle.textContent = subagentLabel ? `${s.title} — [${subagentLabel}]` : s.title;
+      headerSub.innerHTML = `
+        <span>📁 项目: <b>${escapeHtml(s.projectPath)}</b></span>
+        ${s.gitBranch ? `<span>🌿 分支: <b>${escapeHtml(s.gitBranch)}</b></span>` : ''}
+        ${s.model ? `<span>🧠 模型: <b>${escapeHtml(s.model)}</b></span>` : ''}
+        <span>🔑 原账号: ${escapeHtml((s.accountUuid || '').slice(0, 8))}...</span>
+        <span>🕒 ${escapeHtml(s.updatedFormatted)}</span>
+      `;
+
+      let actionsHtml = '';
+      if (s.projectPath && s.projectPath.startsWith('/')) {
+        actionsHtml += `<button class="btn" onclick="openProjectWorkspace('${escapeHtml(s.projectPath.replace(/'/g, "\\'"))}')">📂 查看项目文件夹与代码</button>`;
+      }
+      if (tpath) {
+        const dlUrl = `/api/export_md?type=${encodeURIComponent(mode)}&path=${encodeURIComponent(tpath)}&title=${encodeURIComponent(s.title || sid)}`;
+        actionsHtml += `<a class="btn btn-primary" href="${dlUrl}">📥 导出 1:1 Markdown</a>`;
+      }
+      headerActions.innerHTML = actionsHtml;
+
+      if (!tpath) {
+        body.innerHTML = `
+          <div class="chat-container">
+            <div class="turn-card turn-assistant">
+              <h3>⚠️ 该早期会话仅保留了 Claude Desktop GUI 元数据</h3>
+              <p style="margin-top:8px;color:var(--text-secondary);">
+                该会话的本地 .jsonl 日志已被系统早期自动清理（或属于定时任务运行），但会话标题、所属项目文件夹、状态摘要与时间均已完整复原：
+              </p>
+              <pre class="code-box">${escapeHtml(JSON.stringify(s, null, 2))}</pre>
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      body.innerHTML = `<div style="padding:40px;text-align:center;color:var(--text-secondary);">⏳ 正在解析完整多轮对话记录与工具调用 (${formatBytes(s.transcriptSize)})...</div>`;
+      const res = await fetch(`/api/session?type=${encodeURIComponent(mode)}&path=${encodeURIComponent(tpath)}`);
+      const parsed = await res.json();
+      renderParsedConversation(s, parsed, mode, customTranscriptPath);
+    }
+
+    async function loadCloudSession(uid) {
+      ACTIVE_SESSION_ID = uid;
+      renderSidebar();
+      const c = ((CATALOG.cloudData || {}).conversations || []).find(x => x.sessionId === uid);
+      if (!c) return;
+
+      document.getElementById('main-title').textContent = `☁️ ${c.title}`;
+      document.getElementById('main-subtitle').innerHTML = `
+        <span>☁️ 来源: <b>Chromium Simple Cache (Zstandard 解压还原)</b></span>
+        ${c.projectName ? `<span>🗂️ 云端项目: <b>${escapeHtml(c.projectName)}</b></span>` : ''}
+        <span>🕒 最后更新: ${escapeHtml(c.updatedFormatted)}</span>
+      `;
+      const dlUrl = `/api/export_md?type=cloud&path=${encodeURIComponent(c.jsonPath)}&title=${encodeURIComponent(c.title || uid)}`;
+      document.getElementById('main-actions').innerHTML = `
+        <a class="btn btn-primary" href="${dlUrl}">📥 导出 1:1 Markdown</a>
+        <button class="btn" onclick="previewFile('${escapeHtml(c.jsonPath.replace(/'/g, "\\'"))}', '${escapeHtml(c.title)}.json')">📄 查看原始 JSON</button>
+      `;
+
+      const res = await fetch(`/api/session?type=cloud&path=${encodeURIComponent(c.jsonPath)}`);
+      const parsed = await res.json();
+      renderParsedConversation(c, parsed, 'cloud', null);
+    }
+
+    function renderParsedConversation(sessionInfo, parsed, mode, activeSubPath) {
+      const body = document.getElementById('main-body');
+      const turns = parsed.turns || [];
+      const recFiles = parsed.reconstructedFiles || [];
+      const subPaths = sessionInfo.subagentPaths || [];
+      const outFiles = sessionInfo.outputFiles || [];
+      const upFiles = sessionInfo.uploadFiles || [];
+      const prLinks = (parsed.meta && parsed.meta.prLinks) || sessionInfo.prLinks || [];
+      const frameLinks = (parsed.meta && parsed.meta.frameLinks) || sessionInfo.frameLinks || [];
+
+      let topBanners = '';
+
+      // Subagents selector bar
+      if (subPaths.length > 0) {
+        topBanners += `
+          <div class="turn-card" style="background:#eef4ff;border-color:#bfd7ff;">
+            <div style="font-weight:700;font-size:13px;margin-bottom:8px;color:#1e40af;">
+              🤖 关联的子 Agent 多轮对话记录 (Subagents: ${subPaths.length} 个 .jsonl)
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;">
+              <button class="btn ${!activeSubPath ? 'btn-primary' : ''}" onclick="loadSession('${escapeHtml(sessionInfo.id)}', '${mode}')">
+                🏠 主会话 (${escapeHtml(sessionInfo.title)})
+              </button>
+              ${subPaths.map((sp, i) => {
+                const fn = sp.split('/').pop().replace('.jsonl', '');
+                const isCur = activeSubPath === sp;
+                return `<button class="btn ${isCur ? 'btn-primary' : ''}" onclick="loadSession('${escapeHtml(sessionInfo.id)}', '${mode}', '${escapeHtml(sp.replace(/'/g, "\\'"))}', 'Subagent #${i+1}: ${escapeHtml(fn)}')">
+                  🤖 子Agent #${i+1} (${escapeHtml(fn.slice(0, 18))})
+                </button>`;
+              }).join('')}
+            </div>
+          </div>
+        `;
+      }
+
+      // Cowork Output & Upload artifacts bar
+      if (outFiles.length > 0 || upFiles.length > 0) {
+        topBanners += `
+          <details class="block-details" open>
+            <summary>📦 会话产出文件 (Outputs: ${outFiles.length}) 与上传附件 (Uploads: ${upFiles.length})</summary>
+            <div class="block-body">
+              <table class="file-table">
+                <thead><tr><th>类型</th><th>文件名</th><th>大小</th><th>操作</th></tr></thead>
+                <tbody>
+                  ${outFiles.map(f => `
+                    <tr>
+                      <td><span class="badge badge-green">AI 产出 (Output)</span></td>
+                      <td style="font-family:var(--font-mono);">${escapeHtml(f.name)}</td>
+                      <td>${formatBytes(f.size)}</td>
+                      <td>
+                        <button class="btn" onclick="previewFile('${escapeHtml(f.path.replace(/'/g, "\\'"))}', '${escapeHtml(f.name.replace(/'/g, "\\'"))}')">👁️ 预览</button>
+                        <a class="btn" href="/api/file_content?path=${encodeURIComponent(f.path)}&download=1">📥 下载</a>
+                      </td>
+                    </tr>
+                  `).join('')}
+                  ${upFiles.map(f => `
+                    <tr>
+                      <td><span class="badge badge-blue">用户上传 (Upload)</span></td>
+                      <td style="font-family:var(--font-mono);">${escapeHtml(f.name)}</td>
+                      <td>${formatBytes(f.size)}</td>
+                      <td>
+                        <button class="btn" onclick="previewFile('${escapeHtml(f.path.replace(/'/g, "\\'"))}', '${escapeHtml(f.name.replace(/'/g, "\\'"))}')">👁️ 预览</button>
+                        <a class="btn" href="/api/file_content?path=${encodeURIComponent(f.path)}&download=1">📥 下载</a>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        `;
+      }
+
+      // Reconstructed Code Files from Write/Edit tool calls
+      if (recFiles.length > 0) {
+        window.__CURRENT_REC_FILES = recFiles;
+        topBanners += `
+          <details class="block-details">
+            <summary>🧩 本次对话中 AI 编写/修改的代码文件 (${recFiles.length} 个文件，可直接从对话记录 1:1 提取还原)</summary>
+            <div class="block-body">
+              <table class="file-table">
+                <thead><tr><th>文件路径</th><th>最后操作</th><th>还原大小</th><th>本地状态</th><th>操作</th></tr></thead>
+                <tbody>
+                  ${recFiles.map((rf, idx) => `
+                    <tr>
+                      <td style="font-family:var(--font-mono);">${escapeHtml(rf.filePath)}</td>
+                      <td><span class="badge badge-accent">${escapeHtml(rf.lastOperation)} (${(rf.edits || []).length}次)</span></td>
+                      <td>${formatBytes(rf.size)}</td>
+                      <td>${rf.existsOnDisk ? '<span class="badge badge-green">磁盘存在</span>' : '<span class="badge badge-amber">磁盘已删/可从对话恢复</span>'}</td>
+                      <td>
+                        <button class="btn" onclick="previewReconstructedFile(${idx})">👁️ 查看还原代码与Diff</button>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        `;
+      }
+
+      // PR Links & Artifact Links
+      if (prLinks.length > 0 || frameLinks.length > 0) {
+        topBanners += `
+          <div class="turn-card" style="padding:12px 16px;background:var(--bg-surface);">
+            ${prLinks.map(pr => `<div style="font-size:13px;">🔗 <b>关联 GitHub PR #${escapeHtml(pr.prNumber)}</b>: <a href="${escapeHtml(pr.prUrl)}" target="_blank">${escapeHtml(pr.prUrl)}</a> (${escapeHtml(pr.prRepository)})</div>`).join('')}
+            ${frameLinks.map(fl => `<div style="font-size:13px;margin-top:4px;">🎨 <b>关联 Artifact 看板 [${escapeHtml(fl.title)}]</b>: <code>${escapeHtml(fl.path)}</code> <button class="btn" style="padding:2px 6px;" onclick="previewFile('${escapeHtml((fl.path || '').replace(/'/g, "\\'"))}', '${escapeHtml((fl.title || 'artifact').replace(/'/g, "\\'"))}')">预览本地文件</button></div>`).join('')}
+          </div>
+        `;
+      }
+
+      const turnsHtml = turns.map((turn, idx) => {
+        const isUser = turn.role === 'user';
+        const roleLabel = isUser ? `👤 User (第 ${idx + 1} 轮)` : `🤖 Claude ${turn.model ? `[${escapeHtml(turn.model)}]` : ''} (第 ${idx + 1} 轮)`;
+        const blocksHtml = (turn.blocks || []).map(blk => renderContentBlock(blk)).join('');
+        return `
+          <div class="turn-card ${isUser ? 'turn-user' : 'turn-assistant'}">
+            <div class="turn-header">
+              <span>${roleLabel}</span>
+              <span>${escapeHtml(turn.timestampFormatted || '')}</span>
+            </div>
+            ${blocksHtml}
+          </div>
+        `;
+      }).join('');
+
+      body.innerHTML = `
+        <div class="chat-container">
+          ${topBanners}
+          ${turnsHtml || '<div style="padding:30px;text-align:center;color:var(--text-muted);">该会话暂无可显示的消息轮次</div>'}
+        </div>
+      `;
+    }
+
+    function renderContentBlock(blk) {
+      if (!blk) return '';
+      if (blk.type === 'text') {
+        return `<div class="turn-text">${escapeHtml(blk.text || '')}</div>`;
+      }
+      if (blk.type === 'thinking') {
+        const t = (blk.thinking || '').trim();
+        if (!t) return '';
+        return `
+          <details class="block-details">
+            <summary>💭 AI 思考过程 (Thinking — ${t.length} 字)</summary>
+            <div class="block-body">
+              <div class="turn-text" style="color:var(--text-secondary);font-size:13px;">${escapeHtml(t)}</div>
+            </div>
+          </details>
+        `;
+      }
+      if (blk.type === 'attachment') {
+        return `
+          <details class="block-details">
+            <summary>📎 附件: ${escapeHtml(blk.fileName)} (${escapeHtml(blk.fileType)})</summary>
+            <div class="block-body">
+              <pre class="code-box">${escapeHtml(blk.content || '')}</pre>
+            </div>
+          </details>
+        `;
+      }
+      if (blk.type === 'tool_use') {
+        const tname = blk.name || 'tool';
+        const inp = blk.input || {};
+        const res = blk.result;
+        let summaryExtra = '';
+        let detailBody = '';
+
+        if ((tname === 'Write' || tname === 'write_file' || tname === 'create_file') && (inp.file_path || inp.path)) {
+          const fp = inp.file_path || inp.path;
+          summaryExtra = ` — 写入文件: ${escapeHtml(fp)}`;
+          detailBody = `
+            <div><b>写入路径:</b> <code>${escapeHtml(fp)}</code></div>
+            <pre class="code-box">${escapeHtml(inp.content || inp.file_text || '')}</pre>
+          `;
+        } else if ((tname === 'Edit' || tname === 'replace' || tname === 'str_replace') && (inp.file_path || inp.path)) {
+          const fp = inp.file_path || inp.path;
+          summaryExtra = ` — 修改文件: ${escapeHtml(fp)}`;
+          const oldLines = String(inp.old_string || inp.old_str || '').split('\n').map(l => `<span class="diff-del">- ${escapeHtml(l)}</span>`).join('\n');
+          const newLines = String(inp.new_string || inp.new_str || '').split('\n').map(l => `<span class="diff-add">+ ${escapeHtml(l)}</span>`).join('\n');
+          detailBody = `
+            <div><b>修改路径:</b> <code>${escapeHtml(fp)}</code></div>
+            <pre class="code-box">${oldLines}\n${newLines}</pre>
+          `;
+        } else if (tname === 'Bash' && inp.command) {
+          summaryExtra = ` — $ ${escapeHtml(String(inp.command).slice(0, 75))}`;
+          detailBody = `
+            <div><b>执行命令:</b></div>
+            <pre class="code-box">$ ${escapeHtml(inp.command)}</pre>
+          `;
+        } else if (tname === 'Read' && inp.file_path) {
+          summaryExtra = ` — 读取: ${escapeHtml(inp.file_path)}`;
+          detailBody = `<pre class="code-box">${escapeHtml(JSON.stringify(inp, null, 2))}</pre>`;
+        } else {
+          detailBody = `<pre class="code-box">${escapeHtml(JSON.stringify(inp, null, 2))}</pre>`;
+        }
+
+        let resHtml = '';
+        if (res && res.content) {
+          resHtml = `
+            <div style="margin-top:8px;font-weight:700;color:${res.is_error ? '#dc2626' : 'var(--text-secondary)'};">
+              📤 执行输出 ${res.is_error ? '(ERROR)' : ''}:
+            </div>
+            <pre class="code-box">${escapeHtml(res.content)}</pre>
+          `;
+        }
+
+        return `
+          <details class="block-details">
+            <summary>🛠️ 工具调用: <code>${escapeHtml(tname)}</code> ${summaryExtra}</summary>
+            <div class="block-body">
+              ${detailBody}
+              ${resHtml}
+            </div>
+          </details>
+        `;
+      }
+      if (blk.type === 'tool_result') {
+        return `
+          <details class="block-details">
+            <summary>📤 工具返回结果: <code>${escapeHtml(blk.name || '')}</code></summary>
+            <div class="block-body">
+              <pre class="code-box">${escapeHtml(blk.content || '')}</pre>
+            </div>
+          </details>
+        `;
+      }
+      return '';
+    }
+
+    async function openProjectWorkspace(projectPath) {
+      const proj = (CATALOG.codeProjects || []).find(p => p.projectPath === projectPath);
+      document.getElementById('main-title').textContent = `📂 项目工作区: ${proj ? proj.projectName : projectPath}`;
+      document.getElementById('main-subtitle').innerHTML = `<span>路径: <code>${escapeHtml(projectPath)}</code></span>`;
+      document.getElementById('main-actions').innerHTML = '';
+
+      const body = document.getElementById('main-body');
+      body.innerHTML = `<div style="padding:30px;text-align:center;">正在扫描本地项目文件夹...</div>`;
+
+      const res = await fetch(`/api/project_files?path=${encodeURIComponent(projectPath)}`);
+      const fileData = await res.json();
+      const files = fileData.files || [];
+      const memories = (proj && proj.memories) || [];
+      const sessions = (proj && proj.sessions) || [];
+
+      let memHtml = '';
+      if (memories.length > 0) {
+        memHtml = `
+          <div class="turn-card turn-assistant" style="margin-bottom:18px;">
+            <h3 style="margin-bottom:10px;">🧠 恢复的 Claude 项目专属记忆文件 (Project Memory: ${memories.length} 个)</h3>
+            ${memories.map(m => `
+              <details class="block-details" open>
+                <summary>📝 ${escapeHtml(m.name)} (${formatBytes(m.size)})</summary>
+                <div class="block-body">
+                  <pre class="code-box">${escapeHtml(m.content)}</pre>
+                </div>
+              </details>
+            `).join('')}
+          </div>
+        `;
+      }
+
+      let sessHtml = '';
+      if (sessions.length > 0) {
+        sessHtml = `
+          <div class="turn-card turn-assistant" style="margin-bottom:18px;">
+            <h3 style="margin-bottom:10px;">💬 该项目文件夹下的历史多轮会话 (${sessions.length} 个)</h3>
+            <table class="file-table">
+              <thead><tr><th>会话标题</th><th>工作树 / 分支</th><th>对话轮数</th><th>完整日志大小</th><th>最后更新时间</th><th>操作</th></tr></thead>
+              <tbody>
+                ${sessions.map(s => `
+                  <tr>
+                    <td><b>${escapeHtml(s.title)}</b></td>
+                    <td>${escapeHtml(s.worktreeName || s.gitBranch || '主目录')}</td>
+                    <td>${s.hasTranscript ? `${s.userTurnCount} 问 / ${s.assistantTurnCount} 答` : '仅元数据'}</td>
+                    <td>${formatBytes(s.transcriptSize)}</td>
+                    <td>${escapeHtml(s.updatedFormatted)}</td>
+                    <td><button class="btn btn-primary" onclick="loadSession('${escapeHtml(s.id)}', 'code')">打开对话</button></td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+      }
+
+      let filesHtml = `
+        <div class="turn-card turn-assistant">
+          <h3 style="margin-bottom:10px;">📄 本地项目文件夹代码与成果文件 (${fileData.exists ? `共扫描到 ${files.length} 个文件` : '原路径已移动/删除，可在上方会话中提取重构代码'})</h3>
+          ${files.length > 0 ? `
+            <table class="file-table">
+              <thead><tr><th>相对路径</th><th>大小</th><th>操作</th></tr></thead>
+              <tbody>
+                ${files.map(f => `
+                  <tr>
+                    <td style="font-family:var(--font-mono);">${escapeHtml(f.relPath)}</td>
+                    <td>${formatBytes(f.size)}</td>
+                    <td>
+                      <button class="btn" onclick="previewFile('${escapeHtml(f.fullPath.replace(/'/g, "\\'"))}', '${escapeHtml(f.relPath.replace(/'/g, "\\'"))}')">👁️ 预览代码/文件</button>
+                      <a class="btn" href="/api/file_content?path=${encodeURIComponent(f.fullPath)}&download=1">📥 下载</a>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          ` : ''}
+        </div>
+      `;
+
+      body.innerHTML = `<div class="chat-container">${memHtml}${sessHtml}${filesHtml}</div>`;
+    }
+
+    function showOverviewDashboard() {
+      if (!CATALOG) return;
+      const s = CATALOG.summary || {};
+      const gs = CATALOG.guiState || {};
+
+      document.getElementById('main-title').textContent = '📊 Claude 封号数据 1:1 全景恢复总览';
+      document.getElementById('main-subtitle').innerHTML = `
+        <span>生成时间: ${escapeHtml(CATALOG.generatedAt)}</span>
+        <span>归档目录: <code>recovered_data/</code></span>
+      `;
+      document.getElementById('main-actions').innerHTML = '';
+
+      const reconFolders = s.reconstructedMissingFolders || [];
+
+      document.getElementById('main-body').innerHTML = `
+        <div class="chat-container">
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-value">${s.totalCodeProjects || 0}</div>
+              <div class="stat-label">💻 Code 项目文件夹</div>
+              <div class="stat-sub">含 ${ (gs.sidebarProjectGroups || []).length } 个 GUI 侧边栏分组与 ${s.totalWorktrees || 0} 个 Git Worktrees</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value">${s.totalAllJsonlFiles || 0}</div>
+              <div class="stat-label">📜 完整 JSONL 会话日志 (${s.totalAllTranscriptSizeMB || 0} MB)</div>
+              <div class="stat-sub">${s.totalCodeTranscripts || 0} 个主会话 + ${s.totalSubagentTranscripts || 0} 个 Subagent 会话，100% 明文无加密</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value">${s.totalCoworkSpaces || 0} 空间 / ${s.totalCoworkSessions || 0} 会话</div>
+              <div class="stat-label">🤝 Cowork 本地 Agent 模式</div>
+              <div class="stat-sub">已恢复 ${s.totalCoworkOutputFiles || 0} 个 AI 产出文件 (Outputs) 与上传附件</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value">${s.totalCloudConversations || 0} 对话 / ${s.totalCloudSandboxFiles || 0} 文件</div>
+              <div class="stat-label">☁️ Chromium Zstd 缓存云端还原</div>
+              <div class="stat-sub">从 Simple Cache 解压还原云端对话树、云端项目文档与沙盒下载文件</div>
+            </div>
+          </div>
+
+          <div class="turn-card turn-assistant">
+            <h3 style="margin-bottom:10px;">🔍 被封禁账号取证分析报告 (Forensic Summary)</h3>
+            <p style="font-size:13.5px;color:var(--text-secondary);margin-bottom:12px;">
+              经对本机 Claude Desktop 数据目录与 <code>~/.claude</code> 的五层存储取证分析，<b>本机所有对话记录、思考链、工具调用及项目代码均未加密</b>（云端缓存采用 Zstandard 压缩 + CRC32 校验，GUI 状态采用 LevelDB Snappy 压缩，会话采用 JSONL 存储）。
+              之所以账号被封禁后所有记录“丢失”，是因为：
+              <br/>1) Claude Desktop 在检测到封禁时执行了强制登出（<code>auth:last-signout: {"kind": "forced"}</code>），锁死在登录界面；
+              <br/>2) 即使登录新账号，Claude Desktop 也会按 <code>&lt;accountUuid&gt;/&lt;orgUuid&gt;</code> 隔离历史目录，导致旧账号记录无法显示。
+            </p>
+            <table class="file-table">
+              <thead><tr><th>发现的本机账号 Scope (Account / Organization)</th><th>Code GUI 会话数</th><th>Cowork 会话数</th><th>Cowork 空间数 (spaces.json)</th><th>操作</th></tr></thead>
+              <tbody>
+                ${(s.accountsDiscovered || []).map(acc => `
+                  <tr>
+                    <td style="font-family:var(--font-mono);"><b>${escapeHtml(acc.accountUuid)}</b><br/><span style="color:var(--text-muted);">${escapeHtml(acc.orgUuid)}</span></td>
+                    <td><b>${acc.codeSessionCount}</b> 个</td>
+                    <td><b>${acc.coworkSessionCount}</b> 个</td>
+                    <td><b>${acc.spacesCount}</b> 个</td>
+                    <td><button class="btn" onclick="switchMode('migrate')">🔄 迁移至新账号</button></td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+
+          ${reconFolders.length > 0 ? `
+            <div class="turn-card turn-assistant">
+              <h3 style="margin-bottom:10px;">🛠️ 已自动重构的缺失本地项目文件夹 (${reconFolders.length} 个)</h3>
+              <p style="font-size:13px;color:var(--text-secondary);margin-bottom:10px;">
+                以下项目文件夹在磁盘原路径已不存在，系统已自动从会话的 <code>outputs/</code> 与 <code>Write/Edit</code> 工具调用中 1:1 重构找回：
+              </p>
+              <table class="file-table">
+                <thead><tr><th>原文件夹路径</th><th>关联会话</th><th>找回产出文件数</th><th>找回工具代码文件数</th><th>重构存放位置</th></tr></thead>
+                <tbody>
+                  ${reconFolders.map(rf => `
+                    <tr>
+                      <td style="font-family:var(--font-mono);">${escapeHtml(rf.originalPath)}</td>
+                      <td>${escapeHtml(rf.sessionTitle)}</td>
+                      <td><span class="badge badge-green">${rf.restoredOutputFilesCount} 个文件</span></td>
+                      <td><span class="badge badge-accent">${rf.restoredToolFilesCount} 个代码文件</span></td>
+                      <td><button class="btn" onclick="openProjectWorkspace('${escapeHtml(rf.reconstructedPath.replace(/'/g, "\\'"))}')">📂 打开重构文件夹</button></td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }
+
+    function renderCoworkSpacesOverview() {
+      const spaces = CATALOG.coworkSpaces || [];
+      document.getElementById('main-title').textContent = `🗂️ Cowork 文件夹项目空间 (${spaces.length} 个)`;
+      document.getElementById('main-subtitle').textContent = '来源: ~/Library/Application Support/Claude/local-agent-mode-sessions/.../spaces.json';
+      document.getElementById('main-actions').innerHTML = '';
+
+      document.getElementById('main-body').innerHTML = `
+        <div class="chat-container">
+          <div class="turn-card turn-assistant">
+            <table class="file-table">
+              <thead><tr><th>空间名称</th><th>绑定文件夹路径</th><th>状态</th><th>自定义指令 (Instructions)</th><th>操作</th></tr></thead>
+              <tbody>
+                ${spaces.map(sp => {
+                  const fp = (sp.folders || [])[0] || '';
+                  const ex = (sp.foldersExist || [])[0];
+                  return `
+                    <tr>
+                      <td><b>${escapeHtml(sp.name)}</b></td>
+                      <td style="font-family:var(--font-mono);">${escapeHtml(fp)}</td>
+                      <td>${ex ? '<span class="badge badge-green">本地存在</span>' : '<span class="badge badge-amber">已重构至 recovered_data</span>'}</td>
+                      <td style="max-width:260px;font-size:12px;color:var(--text-secondary);">${escapeHtml((sp.instructions || '无').slice(0, 120))}</td>
+                      <td>
+                        ${ex ? `<button class="btn" onclick="openProjectWorkspace('${escapeHtml(fp.replace(/'/g, "\\'"))}')">📂 浏览文件夹</button>` : ''}
+                      </td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderCloudSandboxExplorer() {
+      const cloud = CATALOG.cloudData || {};
+      const projects = cloud.projects || [];
+      const files = cloud.sandboxFiles || [];
+
+      document.getElementById('main-title').textContent = `☁️ 云端项目与沙盒产出文件库 (${files.length} 个文件)`;
+      document.getElementById('main-subtitle').textContent = '从 Chromium Simple Cache (*_0) 经 CRC32 校验与 Zstandard 解压提取';
+      document.getElementById('main-actions').innerHTML = '';
+
+      document.getElementById('main-body').innerHTML = `
+        <div class="chat-container">
+          <div class="turn-card turn-assistant">
+            <h3 style="margin-bottom:10px;">🗂️ 恢复的云端 Projects (${projects.length} 个)</h3>
+            <table class="file-table">
+              <thead><tr><th>项目名称</th><th>UUID</th><th>说明 / Prompt 模板</th><th>本地缓存文档与文件</th></tr></thead>
+              <tbody>
+                ${projects.map(p => `
+                  <tr>
+                    <td><b>${escapeHtml(p.name)}</b></td>
+                    <td style="font-family:var(--font-mono);font-size:12px;">${escapeHtml(p.uuid)}</td>
+                    <td style="font-size:12px;">${escapeHtml((p.description || p.promptTemplate || '无').slice(0, 120))}</td>
+                    <td>
+                      ${(p.docs || []).map(d => `<button class="btn" style="margin:2px;" onclick="previewFile('${escapeHtml(d.replace(/'/g, "\\'"))}', '${escapeHtml(d.split('/').pop())}')">📄 ${escapeHtml(d.split('/').pop())}</button>`).join('')}
+                      ${(p.files || []).length ? `<span class="badge badge-blue">+${p.files.length} 个附件图</span>` : ''}
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="turn-card turn-assistant">
+            <h3 style="margin-bottom:10px;">📦 云端沙盒下载文件与预览图 (wiggle/download-file & previews: ${files.length} 个)</h3>
+            <table class="file-table">
+              <thead><tr><th>文件名</th><th>原始云端/沙盒路径</th><th>大小</th><th>CRC32校验</th><th>操作</th></tr></thead>
+              <tbody>
+                ${files.map(f => `
+                  <tr>
+                    <td><b>${escapeHtml(f.fileName)}</b></td>
+                    <td style="font-family:var(--font-mono);font-size:11.5px;word-break:break-all;">${escapeHtml(f.remotePath)}</td>
+                    <td>${formatBytes(f.size)}</td>
+                    <td>${f.crcVerified ? '<span class="badge badge-green">100% 校验通过</span>' : '<span class="badge badge-amber">Raw</span>'}</td>
+                    <td>
+                      <button class="btn" onclick="previewFile('${escapeHtml(f.savedPath.replace(/'/g, "\\'"))}', '${escapeHtml(f.fileName.replace(/'/g, "\\'"))}')">👁️ 预览</button>
+                      <a class="btn" href="/api/file_content?path=${encodeURIComponent(f.savedPath)}&download=1">📥 下载</a>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderSnapshotsExplorer() {
+      const aux = CATALOG.auxiliaryEvidence || {};
+      const snaps = aux.fileHistorySnapshots || [];
+      const shadows = aux.shadowGitRepos || [];
+      const handoffs = aux.handoffFiles || [];
+      const uploads = aux.pendingUploads || [];
+      const pastes = aux.pasteCacheFiles || [];
+
+      document.getElementById('main-title').textContent = `🕰️ 文件历史快照、影子 Git 仓库与辅助证据库`;
+      document.getElementById('main-subtitle').textContent = `${snaps.length} 个文件修改快照 (含原路径映射) · ${shadows.length} 个影子 Git 仓库 · ${handoffs.length} 个交接报告 · ${uploads.length} 个待上传图片`;
+      document.getElementById('main-actions').innerHTML = '';
+
+      document.getElementById('main-body').innerHTML = `
+        <div class="chat-container">
+          <div class="turn-card turn-assistant">
+            <h3 style="margin-bottom:10px;">🌳 影子 Git 仓库与提交记录 (git-shadow: ${shadows.length} 个)</h3>
+            <table class="file-table">
+              <thead><tr><th>影子仓库 ID</th><th>指向原仓库 (shadow-of)</th><th>最近 Git 提交记录</th></tr></thead>
+              <tbody>
+                ${shadows.map(sr => `
+                  <tr>
+                    <td style="font-family:var(--font-mono);font-size:12px;">${escapeHtml(sr.id.slice(0, 24))}...</td>
+                    <td style="font-family:var(--font-mono);">${escapeHtml(sr.shadowOf || '独立影子库')}</td>
+                    <td>
+                      ${(sr.recentCommits || []).length ? `<pre class="code-box" style="margin:0;padding:8px;">${escapeHtml(sr.recentCommits.join('\n'))}</pre>` : '<span style="color:var(--text-muted);">仅索引/引用</span>'}
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="turn-card turn-assistant">
+            <h3 style="margin-bottom:10px;">📋 交接文档 (handoff-history) · 粘贴缓存 (paste-cache) · 待上传图片 (pending-uploads)</h3>
+            <table class="file-table">
+              <thead><tr><th>类别</th><th>文件名称</th><th>大小</th><th>时间</th><th>操作</th></tr></thead>
+              <tbody>
+                ${handoffs.map(f => `
+                  <tr>
+                    <td><span class="badge badge-accent">交接报告</span></td>
+                    <td style="font-family:var(--font-mono);">${escapeHtml(f.name)}</td>
+                    <td>${formatBytes(f.size)}</td>
+                    <td>${escapeHtml(f.mtime)}</td>
+                    <td>
+                      <button class="btn" onclick="previewFile('${escapeHtml(f.path.replace(/'/g, "\\'"))}', '${escapeHtml(f.name.replace(/'/g, "\\'"))}')">👁️ 预览</button>
+                      <a class="btn" href="/api/file_content?path=${encodeURIComponent(f.path)}&download=1">📥 下载</a>
+                    </td>
+                  </tr>
+                `).join('')}
+                ${pastes.map(f => `
+                  <tr>
+                    <td><span class="badge badge-blue">粘贴缓存</span></td>
+                    <td style="font-family:var(--font-mono);">${escapeHtml(f.name)}</td>
+                    <td>${formatBytes(f.size)}</td>
+                    <td>${escapeHtml(f.mtime)}</td>
+                    <td>
+                      <button class="btn" onclick="previewFile('${escapeHtml(f.path.replace(/'/g, "\\'"))}', '${escapeHtml(f.name.replace(/'/g, "\\'"))}')">👁️ 预览</button>
+                      <a class="btn" href="/api/file_content?path=${encodeURIComponent(f.path)}&download=1">📥 下载</a>
+                    </td>
+                  </tr>
+                `).join('')}
+                ${uploads.map(f => `
+                  <tr>
+                    <td><span class="badge badge-green">待传图片</span></td>
+                    <td style="font-family:var(--font-mono);">${escapeHtml(f.name)}</td>
+                    <td>${formatBytes(f.size)}</td>
+                    <td>${escapeHtml(f.mtime)}</td>
+                    <td>
+                      <button class="btn" onclick="previewFile('${escapeHtml(f.path.replace(/'/g, "\\'"))}', '${escapeHtml(f.name.replace(/'/g, "\\'"))}')">👁️ 预览图片</button>
+                      <a class="btn" href="/api/file_content?path=${encodeURIComponent(f.path)}&download=1">📥 下载</a>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="turn-card turn-assistant">
+            <h3 style="margin-bottom:10px;">🕰️ 文件历史版本快照库 (~/.claude/file-history: ${snaps.length} 个快照文件)</h3>
+            <p style="font-size:13px;color:var(--text-secondary);margin-bottom:10px;">
+              通过解析 JSONL 中的 <code>file-history-snapshot</code> (<code>trackedFileBackups</code>)，自动将哈希快照还原为原始代码文件名：
+            </p>
+            <table class="file-table">
+              <thead><tr><th>还原原文件路径</th><th>快照标识</th><th>大小</th><th>备份时间</th><th>操作</th></tr></thead>
+              <tbody>
+                ${snaps.map(sn => `
+                  <tr>
+                    <td style="font-family:var(--font-mono);font-size:12px;word-break:break-all;">
+                      ${sn.isMappedToOriginalPath ? `<span class="badge badge-green">已还原路径</span> ` : ''}
+                      <b>${escapeHtml(sn.originalPath)}</b>
+                    </td>
+                    <td style="font-family:var(--font-mono);font-size:12px;">${escapeHtml(sn.backupFileName)}</td>
+                    <td>${formatBytes(sn.size)}</td>
+                    <td>${escapeHtml(sn.backupTime)}</td>
+                    <td>
+                      <button class="btn" onclick="previewFile('${escapeHtml(sn.snapshotPath.replace(/'/g, "\\'"))}', '${escapeHtml(sn.originalRelPath.replace(/'/g, "\\'"))}')">👁️ 预览快照内容</button>
+                      <a class="btn" href="/api/file_content?path=${encodeURIComponent(sn.snapshotPath)}&download=1">📥 下载</a>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    async function renderMigrationCenter() {
+      document.getElementById('main-title').textContent = '🔄 Claude Desktop 账号迁移与防封备份中心';
+      document.getElementById('main-subtitle').textContent = '将封禁账号的历史会话与空间无损挂载到新账号，或开启定时防封备份';
+      document.getElementById('main-actions').innerHTML = '';
+
+      const res = await fetch('/api/scopes');
+      const data = await res.json();
+      const scopes = data.scopes || [];
+
+      document.getElementById('main-body').innerHTML = `
+        <div class="chat-container">
+          <div class="turn-card turn-assistant">
+            <h3 style="margin-bottom:10px;">1️⃣ 新账号一键恢复 Claude Desktop 原生侧边栏 (Account Rebinding)</h3>
+            <p style="font-size:13.5px;color:var(--text-secondary);margin-bottom:12px;">
+              当你在 Claude Desktop 客户端中退出被封禁账号并登录<b>新账号</b>后，Claude Desktop 会在本地创建一个新的 <code>&lt;accountUuid&gt;/&lt;orgUuid&gt;</code> 目录。
+              在下方输入或选择新账号的 Scope，即可将旧账号下的全部 <b>Code 会话、Cowork 文件夹空间、Cowork 会话及项目缓存</b>无损合并到新账号下，重启 Claude Desktop 即可原生看到所有历史项目！
+            </p>
+            <table class="file-table" style="margin-bottom:14px;">
+              <thead><tr><th>本机已发现的 Account / Org Scope</th><th>Code 会话</th><th>Cowork 会话</th><th>spaces.json</th><th>最后活跃时间</th><th>设为迁移目标</th></tr></thead>
+              <tbody>
+                ${scopes.map(sc => `
+                  <tr>
+                    <td style="font-family:var(--font-mono);"><b>${escapeHtml(sc.scopeKey)}</b></td>
+                    <td>${sc.codeSessions}</td>
+                    <td>${sc.coworkSessions}</td>
+                    <td>${sc.hasSpacesJson ? '✅ 有' : '—'}</td>
+                    <td>${escapeHtml(sc.lastModifiedFormatted)}</td>
+                    <td><button class="btn" onclick="document.getElementById('target-scope-input').value='${escapeHtml(sc.scopeKey)}'">填入目标框</button></td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+            <div style="display:flex;gap:10px;align-items:center;">
+              <input type="text" id="target-scope-input" class="search-input" style="max-width:480px;font-family:var(--font-mono);" placeholder="输入新账号的 accountUuid/orgUuid" />
+              <button class="btn" onclick="runMigration(true)">🔍 模拟预检 (Dry Run)</button>
+              <button class="btn btn-primary" onclick="runMigration(false)">🚀 执行无损合并迁移</button>
+            </div>
+            <div id="migration-result" style="margin-top:12px;"></div>
+          </div>
+
+          <div class="turn-card turn-assistant">
+            <h3 style="margin-bottom:10px;">2️⃣ 内部研发防封号自动备份机制 (Anti-Ban Continuous Protection)</h3>
+            <p style="font-size:13.5px;color:var(--text-secondary);margin-bottom:10px;">
+              已为您配置双重防丢保护：
+            </p>
+            <ul style="font-size:13.5px;padding-left:20px;line-height:1.8;">
+              <li><b>永久禁用 30 天自动清理</b>：已在 <code>~/.claude/settings.json</code> 中锁定 <code>"cleanupPeriodDays": 3650</code>（保留 10 年）。</li>
+              <li><b>物理归档目录已生成</b>：所有项目文件夹、Markdown 对话记录、重构代码文件与沙盒文件已 1:1 导出至当前目录下的 <code>recovered_data/</code>。</li>
+              <li><b>后台定时增量守护</b>：随时运行 <code>python3 auto_backup.py --install-launchd</code> 即可在 macOS 注册每 30 分钟自动增量提取 Chromium 缓存与会话的守护任务。</li>
+            </ul>
+          </div>
+        </div>
+      `;
+    }
+
+    async function runMigration(dryRun) {
+      const target = document.getElementById('target-scope-input').value.trim();
+      const box = document.getElementById('migration-result');
+      if (!target || !target.includes('/')) {
+        box.innerHTML = `<span style="color:#dc2626;font-weight:600;">请输入格式为 accountUuid/orgUuid 的目标 Scope！</span>`;
+        return;
+      }
+      box.innerHTML = `⏳ 正在执行...`;
+      const res = await fetch('/api/migrate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetScope: target, dryRun }),
+      });
+      const out = await res.json();
+      box.innerHTML = `<pre class="code-box">${escapeHtml(JSON.stringify(out, null, 2))}</pre>`;
+    }
+
+    async function previewFile(filePath, title) {
+      const modal = document.getElementById('file-modal');
+      const mTitle = document.getElementById('modal-title');
+      const mBody = document.getElementById('modal-body');
+      const mDl = document.getElementById('modal-download');
+
+      mTitle.textContent = title || filePath;
+      mDl.href = `/api/file_content?path=${encodeURIComponent(filePath)}&download=1`;
+      modal.classList.add('open');
+
+      const lower = filePath.toLowerCase();
+      if (lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.gif') || lower.endsWith('.webp')) {
+        mBody.innerHTML = `<div style="text-align:center;"><img src="/api/file_content?path=${encodeURIComponent(filePath)}" style="max-width:100%;max-height:72vh;border-radius:8px;" /></div>`;
+        return;
+      }
+      if (lower.endsWith('.pdf')) {
+        mBody.innerHTML = `<iframe src="/api/file_content?path=${encodeURIComponent(filePath)}" style="width:100%;height:72vh;border:none;"></iframe>`;
+        return;
+      }
+
+      mBody.innerHTML = `正在加载文件内容...`;
+      const res = await fetch(`/api/file_content?path=${encodeURIComponent(filePath)}`);
+      const ctype = res.headers.get('Content-Type') || '';
+      if (ctype.includes('application/json')) {
+        const data = await res.json();
+        if (data.error) {
+          mBody.innerHTML = `<div style="color:#dc2626;">无法读取文件: ${escapeHtml(data.error)}</div>`;
+        } else {
+          mBody.innerHTML = `<pre class="code-box">${escapeHtml(data.content || '')}</pre>`;
+        }
+      } else {
+        mBody.innerHTML = `<div style="padding:20px;">二进制文档文件，请点击右上角“下载原文件”查看。</div>`;
+      }
+    }
+
+    function previewReconstructedFile(idx) {
+      const rf = (window.__CURRENT_REC_FILES || [])[idx];
+      if (!rf) return;
+      const modal = document.getElementById('file-modal');
+      document.getElementById('modal-title').textContent = `🧩 对话重构文件: ${rf.filePath}`;
+      const blob = new Blob([rf.content || ''], { type: 'text/plain;charset=utf-8' });
+      document.getElementById('modal-download').href = URL.createObjectURL(blob);
+      document.getElementById('modal-download').download = rf.fileName || 'reconstructed.txt';
+      modal.classList.add('open');
+
+      const editsHtml = (rf.edits || []).map((ed, i) => `
+        <div style="margin-bottom:8px;">
+          <span class="badge badge-accent">操作 #${i+1}: ${escapeHtml(ed.op)} (${escapeHtml(ed.timestamp || '')})</span>
+          ${ed.old_string ? `<pre class="code-box"><span class="diff-del">- ${escapeHtml(ed.old_string)}</span>\n<span class="diff-add">+ ${escapeHtml(ed.new_string || '')}</span></pre>` : ''}
+        </div>
+      `).join('');
+
+      document.getElementById('modal-body').innerHTML = `
+        <div style="margin-bottom:12px;">
+          <b>原始目标路径:</b> <code>${escapeHtml(rf.filePath)}</code>
+        </div>
+        ${rf.content ? `
+          <h4 style="margin-bottom:6px;">📄 完整重构代码内容 (${formatBytes(rf.size)}):</h4>
+          <pre class="code-box">${escapeHtml(rf.content)}</pre>
+        ` : ''}
+        ${editsHtml ? `<h4 style="margin:14px 0 6px;">🛠️ 历史修改记录 (Edits):</h4>${editsHtml}` : ''}
+      `;
+    }
+
+    function closeModal() {
+      document.getElementById('file-modal').classList.remove('open');
+    }
+
+    async function triggerRescan() {
+      const btn = document.getElementById('btn-rescan');
+      btn.textContent = '⏳ 扫描中...';
+      btn.disabled = true;
+      try {
+        await fetch('/api/rescan', { method: 'POST' });
+        await init();
+      } finally {
+        btn.textContent = '⚡ 增量同步扫描';
+        btn.disabled = false;
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
