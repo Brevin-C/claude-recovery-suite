@@ -476,30 +476,35 @@ def scan_all_chromium_caches(claude_app_dir: str, out_cloud_dir: str) -> Dict[st
                 })
 
     # Merge .project-cache from local-agent-mode-sessions into cloud_projects
-    for pcache in glob.glob(os.path.join(claude_app_dir, "local-agent-mode-sessions", "*", "*", ".project-cache", "*")):
-        if os.path.isdir(pcache):
-            meta_p = os.path.join(pcache, "metadata.json")
-            if os.path.exists(meta_p):
-                try:
-                    with open(meta_p, "r", encoding="utf-8") as mf:
-                        m = json.load(mf)
-                    puid = m.get("uuid") or os.path.basename(pcache)
-                    docs_dir = os.path.join(pcache, "docs")
-                    files_dir = os.path.join(pcache, "files")
-                    docs = os.listdir(docs_dir) if os.path.isdir(docs_dir) else []
-                    files = os.listdir(files_dir) if os.path.isdir(files_dir) else []
-                    cloud_projects[puid] = {
-                        "uuid": puid,
-                        "name": m.get("name", puid),
-                        "description": m.get("description", ""),
-                        "promptTemplate": m.get("prompt_template", ""),
-                        "syncedAt": m.get("synced_at"),
-                        "localCacheDir": pcache,
-                        "docs": [os.path.join(docs_dir, d) for d in docs],
-                        "files": [os.path.join(files_dir, f) for f in files],
-                    }
-                except Exception:
-                    pass
+    pcache_patterns = [
+        os.path.join(claude_app_dir, "local-agent-mode-sessions", "*", "*", ".project-cache", "*"),
+        os.path.join(os.path.dirname(out_cloud_dir), "archived_account_scopes", "local-agent-mode-sessions", "*", "*", ".project-cache", "*"),
+    ]
+    for pat in pcache_patterns:
+        for pcache in glob.glob(pat):
+            if os.path.isdir(pcache):
+                meta_p = os.path.join(pcache, "metadata.json")
+                if os.path.exists(meta_p):
+                    try:
+                        with open(meta_p, "r", encoding="utf-8") as mf:
+                            m = json.load(mf)
+                        puid = m.get("uuid") or os.path.basename(pcache)
+                        docs_dir = os.path.join(pcache, "docs")
+                        files_dir = os.path.join(pcache, "files")
+                        docs = os.listdir(docs_dir) if os.path.isdir(docs_dir) else []
+                        files = os.listdir(files_dir) if os.path.isdir(files_dir) else []
+                        cloud_projects[puid] = {
+                            "uuid": puid,
+                            "name": m.get("name", puid),
+                            "description": m.get("description", ""),
+                            "promptTemplate": m.get("prompt_template", ""),
+                            "syncedAt": m.get("synced_at"),
+                            "localCacheDir": pcache,
+                            "docs": [os.path.join(docs_dir, d) for d in docs],
+                            "files": [os.path.join(files_dir, f) for f in files],
+                        }
+                    except Exception:
+                        pass
 
     # Export all 47+ full cloud conversations to JSON + Markdown
     cloud_conv_entries = []
@@ -733,8 +738,19 @@ def run_full_recovery(
     claude_cli_dir = claude_cli_dir or get_default_claude_cli_dir()
     os.makedirs(output_dir, exist_ok=True)
 
-    # 1. Extract LevelDB GUI sidebar state
+    existing_catalog_path = os.path.join(output_dir, "catalog.json")
+    prev_catalog: Dict[str, Any] = {}
+    if os.path.isfile(existing_catalog_path):
+        try:
+            with open(existing_catalog_path, "r", encoding="utf-8") as ef:
+                prev_catalog = json.load(ef)
+        except Exception:
+            prev_catalog = {}
+
+    # 1. Extract LevelDB GUI sidebar state (or preserve previous if Local Storage was cleaned)
     gui_state = extract_leveldb_gui_state(claude_app_dir)
+    if not gui_state.get("sidebarProjectGroups") and prev_catalog.get("guiState", {}).get("sidebarProjectGroups"):
+        gui_state = prev_catalog["guiState"]
 
     pinned_session_map: Dict[str, str] = {}
     pinned_groups_list: List[Dict[str, Any]] = []
@@ -856,16 +872,22 @@ def run_full_recovery(
                 jsonl_by_uuid[sid] = meta
                 early_transcripts_count += 1
 
-    # 5. Scan ~/Library/Application Support/Claude/claude-code-sessions
-    ccs_dir = os.path.join(claude_app_dir, "claude-code-sessions")
+    # 5. Scan claude-code-sessions (both active and archived_account_scopes)
+    ccs_roots = [
+        os.path.join(claude_app_dir, "claude-code-sessions"),
+        os.path.join(output_dir, "archived_account_scopes", "claude-code-sessions"),
+    ]
     ccs_sessions: List[Dict[str, Any]] = []
     matched_jsonl_uuids: Set[str] = set()
     accounts_discovered: Dict[str, Dict[str, Any]] = {}
     scheduled_sessions_count = 0
     human_gui_sessions_count = 0
     human_gui_matched_count = 0
+    seen_gui_sids: Set[str] = set()
 
-    if os.path.isdir(ccs_dir):
+    for ccs_dir in ccs_roots:
+        if not os.path.isdir(ccs_dir):
+            continue
         for root, dirs, files in os.walk(ccs_dir):
             for fn in files:
                 if not fn.endswith(".json"):
@@ -876,6 +898,18 @@ def run_full_recovery(
                 acc_uuid = parts[0] if len(parts) >= 2 else "unknown"
                 org_uuid = parts[1] if len(parts) >= 2 else "unknown"
                 acc_key = f"{acc_uuid}/{org_uuid}"
+
+                try:
+                    with open(fp, "r", encoding="utf-8") as jf:
+                        data = json.load(jf)
+                except Exception:
+                    continue
+
+                gui_sid = data.get("sessionId") or fn[:-5]
+                if gui_sid in seen_gui_sids:
+                    continue
+                seen_gui_sids.add(gui_sid)
+
                 acc_entry = accounts_discovered.setdefault(
                     acc_key,
                     {
@@ -887,14 +921,6 @@ def run_full_recovery(
                     },
                 )
                 acc_entry["codeSessionCount"] += 1
-
-                try:
-                    with open(fp, "r", encoding="utf-8") as jf:
-                        data = json.load(jf)
-                except Exception:
-                    continue
-
-                gui_sid = data.get("sessionId") or fn[:-5]
                 cli_sid = data.get("cliSessionId")
                 prior_cli_sids = [
                     x for x in (data.get("priorCliSessionIds") or []) if isinstance(x, str)
@@ -1136,13 +1162,20 @@ def run_full_recovery(
         reverse=True,
     )
 
-    # 8. Scan local-agent-mode-sessions (Cowork Spaces & Sessions)
-    lam_dir = os.path.join(claude_app_dir, "local-agent-mode-sessions")
+    # 8. Scan local-agent-mode-sessions (Cowork Spaces & Sessions, both active and archived)
+    lam_roots = [
+        os.path.join(claude_app_dir, "local-agent-mode-sessions"),
+        os.path.join(output_dir, "archived_account_scopes", "local-agent-mode-sessions"),
+    ]
     cowork_spaces: List[Dict[str, Any]] = []
     cowork_sessions: List[Dict[str, Any]] = []
     cowork_jsonl_count = 0
+    seen_space_ids: Set[str] = set()
+    seen_cowork_sids: Set[str] = set()
 
-    if os.path.isdir(lam_dir):
+    for lam_dir in lam_roots:
+        if not os.path.isdir(lam_dir):
+            continue
         for root, dirs, files in os.walk(lam_dir):
             if "spaces.json" in files:
                 sp_path = os.path.join(root, "spaces.json")
@@ -1155,9 +1188,13 @@ def run_full_recovery(
                     with open(sp_path, "r", encoding="utf-8") as spf:
                         sp_data = json.load(spf)
                     for s in sp_data.get("spaces", []):
+                        sp_id = s.get("id")
+                        if sp_id in seen_space_ids:
+                            continue
+                        seen_space_ids.add(sp_id)
                         folders = [f.get("path") for f in s.get("folders", []) if isinstance(f, dict) and f.get("path")]
                         cowork_spaces.append({
-                            "id": s.get("id"),
+                            "id": sp_id,
                             "name": s.get("name"),
                             "folders": folders,
                             "foldersExist": [os.path.exists(fp) for fp in folders],
@@ -1181,6 +1218,18 @@ def run_full_recovery(
                     acc_uuid = parts[0] if len(parts) >= 2 else "unknown"
                     org_uuid = parts[1] if len(parts) >= 2 else "unknown"
                     acc_key = f"{acc_uuid}/{org_uuid}"
+
+                    try:
+                        with open(fp, "r", encoding="utf-8") as cf_in:
+                            data = json.load(cf_in)
+                    except Exception:
+                        continue
+
+                    sid = data.get("sessionId") or fn[:-5]
+                    if sid in seen_cowork_sids:
+                        continue
+                    seen_cowork_sids.add(sid)
+
                     accounts_discovered.setdefault(
                         acc_key,
                         {
@@ -1191,14 +1240,6 @@ def run_full_recovery(
                             "spacesCount": 0,
                         },
                     )["coworkSessionCount"] += 1
-
-                    try:
-                        with open(fp, "r", encoding="utf-8") as cf_in:
-                            data = json.load(cf_in)
-                    except Exception:
-                        continue
-
-                    sid = data.get("sessionId") or fn[:-5]
                     sdir = os.path.join(root, fn[:-5])
                     audit_path = os.path.join(sdir, "audit.jsonl")
                     inner_jsonls = glob.glob(os.path.join(sdir, ".claude", "projects", "**", "*.jsonl"), recursive=True)
@@ -1270,6 +1311,24 @@ def run_full_recovery(
     # 9. Scan Chromium Simple Cache for Cloud Conversations, Projects & Sandbox Artifacts
     out_cloud_dir = os.path.join(output_dir, "cloud_chats_and_projects")
     cloud_data = scan_all_chromium_caches(claude_app_dir, out_cloud_dir)
+    prev_cloud = prev_catalog.get("cloudData") or {}
+    if prev_cloud:
+        seen_cids = {c["sessionId"] for c in cloud_data["conversations"]}
+        for pc in prev_cloud.get("conversations", []):
+            if pc.get("sessionId") not in seen_cids:
+                cloud_data["conversations"].append(pc)
+        seen_vshas = {v["sha256"] for v in cloud_data.get("conversationResponseVersions", []) if "sha256" in v}
+        for pv in prev_cloud.get("conversationResponseVersions", []):
+            if pv.get("sha256") not in seen_vshas:
+                cloud_data.setdefault("conversationResponseVersions", []).append(pv)
+        seen_puids = {p["uuid"] for p in cloud_data["projects"]}
+        for pp in prev_cloud.get("projects", []):
+            if pp.get("uuid") not in seen_puids:
+                cloud_data["projects"].append(pp)
+        seen_sfids = {s["id"] for s in cloud_data["sandboxFiles"]}
+        for ps in prev_cloud.get("sandboxFiles", []):
+            if ps.get("id") not in seen_sfids:
+                cloud_data["sandboxFiles"].append(ps)
 
     # 10. Scan Auxiliary Evidence (file-history with resolved names, handoff-history, git-shadow, etc.)
     aux_evidence = scan_auxiliary_evidence(claude_cli_dir, claude_app_dir, global_backup_map)

@@ -23,52 +23,64 @@ from typing import Any, Dict, List, Optional, Tuple
 from claude_recovery.extractor import get_default_claude_app_dir
 
 
+def _get_search_roots(claude_app_dir: str) -> List[str]:
+    roots = [claude_app_dir]
+    if os.path.abspath(claude_app_dir) == os.path.abspath(get_default_claude_app_dir()):
+        project_root = os.path.dirname(os.path.abspath(__file__))
+        vault = os.path.join(project_root, "recovered_data", "archived_account_scopes")
+        if os.path.isdir(vault) and vault not in roots:
+            roots.append(vault)
+    return roots
+
+
 def discover_claude_desktop_scopes(claude_app_dir: str) -> List[Dict[str, Any]]:
     scopes: Dict[str, Dict[str, Any]] = {}
 
-    for sub, field in [
-        ("claude-code-sessions", "codeSessions"),
-        ("local-agent-mode-sessions", "coworkSessions"),
-    ]:
-        base = os.path.join(claude_app_dir, sub)
-        if not os.path.isdir(base):
-            continue
-        for acc in os.listdir(base):
-            acc_p = os.path.join(base, acc)
-            if not os.path.isdir(acc_p) or acc.startswith("."):
+    for root_dir in _get_search_roots(claude_app_dir):
+        for sub, field in [
+            ("claude-code-sessions", "codeSessions"),
+            ("local-agent-mode-sessions", "coworkSessions"),
+        ]:
+            base = os.path.join(root_dir, sub)
+            if not os.path.isdir(base):
                 continue
-            for org in os.listdir(acc_p):
-                org_p = os.path.join(acc_p, org)
-                if not os.path.isdir(org_p) or org.startswith("."):
+            for acc in os.listdir(base):
+                acc_p = os.path.join(base, acc)
+                if not os.path.isdir(acc_p) or acc.startswith("."):
                     continue
-                key = f"{acc}/{org}"
-                entry = scopes.setdefault(
-                    key,
-                    {
-                        "scopeKey": key,
-                        "accountUuid": acc,
-                        "orgUuid": org,
-                        "codeSessions": 0,
-                        "coworkSessions": 0,
-                        "hasSpacesJson": False,
-                        "hasProjectCache": False,
-                        "lastModified": 0.0,
-                    },
-                )
-                for fn in os.listdir(org_p):
-                    fp = os.path.join(org_p, fn)
-                    try:
-                        mt = os.path.getmtime(fp)
-                        if mt > entry["lastModified"]:
-                            entry["lastModified"] = mt
-                    except Exception:
-                        pass
-                    if fn.startswith("local_") and fn.endswith(".json"):
-                        entry[field] += 1
-                    elif fn == "spaces.json":
-                        entry["hasSpacesJson"] = True
-                    elif fn == ".project-cache":
-                        entry["hasProjectCache"] = True
+                for org in os.listdir(acc_p):
+                    org_p = os.path.join(acc_p, org)
+                    if not os.path.isdir(org_p) or org.startswith("."):
+                        continue
+                    key = f"{acc}/{org}"
+                    entry = scopes.setdefault(
+                        key,
+                        {
+                            "scopeKey": key,
+                            "accountUuid": acc,
+                            "orgUuid": org,
+                            "sourceRoot": root_dir,
+                            "codeSessions": 0,
+                            "coworkSessions": 0,
+                            "hasSpacesJson": False,
+                            "hasProjectCache": False,
+                            "lastModified": 0.0,
+                        },
+                    )
+                    for fn in os.listdir(org_p):
+                        fp = os.path.join(org_p, fn)
+                        try:
+                            mt = os.path.getmtime(fp)
+                            if mt > entry["lastModified"]:
+                                entry["lastModified"] = mt
+                        except Exception:
+                            pass
+                        if fn.startswith("local_") and fn.endswith(".json"):
+                            entry[field] += 1
+                        elif fn == "spaces.json":
+                            entry["hasSpacesJson"] = True
+                        elif fn == ".project-cache":
+                            entry["hasProjectCache"] = True
 
     res = list(scopes.values())
     for r in res:
@@ -137,9 +149,10 @@ def migrate_scopes_to_target(
             continue
         src_acc = sc["accountUuid"]
         src_org = sc["orgUuid"]
+        src_root = sc.get("sourceRoot") or claude_app_dir
 
         # 1. Copy claude-code-sessions JSONs
-        src_ccs = os.path.join(claude_app_dir, "claude-code-sessions", src_acc, src_org)
+        src_ccs = os.path.join(src_root, "claude-code-sessions", src_acc, src_org)
         if os.path.isdir(src_ccs):
             for fn in os.listdir(src_ccs):
                 if fn.endswith(".json"):
@@ -151,7 +164,7 @@ def migrate_scopes_to_target(
                             shutil.copy2(src_fp, dst_fp)
 
         # 2. Copy local-agent-mode-sessions (JSONs, session folders, spaces.json, .project-cache)
-        src_lam = os.path.join(claude_app_dir, "local-agent-mode-sessions", src_acc, src_org)
+        src_lam = os.path.join(src_root, "local-agent-mode-sessions", src_acc, src_org)
         if os.path.isdir(src_lam):
             for fn in os.listdir(src_lam):
                 src_fp = os.path.join(src_lam, fn)

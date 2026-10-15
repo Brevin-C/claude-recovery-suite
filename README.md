@@ -74,7 +74,30 @@ python3 server.py --port 8765
 
 ---
 
-## 🔄 三、登录新账号后，如何将旧账号记录 1:1 挂载回 Claude Desktop 原生界面？
+## 🧹 三、登录新账号前：一键清理被封账号痕迹与重置设备防关联指纹 (`clean_account_traces.py`)
+
+为防止登录新账号时被客户端残留的旧账号缓存、遥测重试队列或持久化设备指纹（Device ID / Machine ID）关联风控，可在恢复完本地数据后运行：
+
+```bash
+# 1. 预览将要清理的账号凭证与设备指纹项 (Dry Run)
+python3 clean_account_traces.py --dry-run
+
+# 2. 正式执行防关联清理（100% 保留本地对话与项目代码）
+python3 clean_account_traces.py
+```
+
+该工具会自动完成以下 7 层防关联清理（**绝不删除任何本地对话记录与项目文件**）：
+1. **清理 `~/.claude.json` 账号凭证与重置机器指纹**：移除 `oauthAccount`、`groveConfigCache`、`passesEligibilityCache`、`cachedArtifactRoster` 等组织缓存，并重新生成全新的 64 位 `userID` 与 `machineID`（完整保留 `projects` 项目配置）。
+2. **清空待重试遥测队列 (`~/.claude/telemetry/`)**：删除所有 `1p_failed_events.*.json`（防止新账号连接时将旧被封账号 UUID 补传至遥测服务器）。
+3. **擦除 `.jsonl` 中的桥接账号标记**：清理 `~/.claude/projects/**/*.jsonl` 中 `bridge-session` 行的 `ownerAccountUuid` / `ownerOrganizationUuid`，100% 保留对话内容与工具调用。
+4. **重置 Claude Desktop 设备指纹**：重新生成全新的 `ant-did`（Anthropic Device ID）、`ccd-ids.json`（Salt）、`Preferences`（`device_id_salt`）、`Local State`（安装时间戳）及虚拟机 `gvisorMacAddress`，并清空 `ant-device-registry.json` 与 `bridge-state.json`。
+5. **清理 Chromium 追踪存储**：清理 `Cookies`、`Trust Tokens`、`Local Storage`、`Session Storage`、`IndexedDB`、`Cache` 与 `sentry`。
+6. **清理系统钥匙串残留令牌**：自动清除 macOS Keychain 中的 `Claude Code-credentials*` 失效令牌。
+7. **安全归档旧账号会话目录**：将 `claude-code-sessions/<oldAccountUuid>` 与 `local-agent-mode-sessions/<oldAccountUuid>` 移入 `recovered_data/archived_account_scopes/` 安全金库，客户端启动时完全无旧账号残留，同时随时支持一键迁移至新账号。
+
+---
+
+## 🔄 四、登录新账号后，如何将旧账号记录 1:1 挂载回 Claude Desktop 原生界面？
 
 当你退出被封禁的账号并在 Claude Desktop 登录一个**新账号**后，客户端会创建一个新的 `<accountUuid>/<orgUuid>` 目录。你可以通过 Web 工作台的 **“🔄 账号迁移与防封中心”** 页面一键迁移，或在终端运行：
 
